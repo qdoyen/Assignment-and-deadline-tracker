@@ -5,7 +5,11 @@ The site then shows what is overdue and how many hours of work remain.
 """
 from drafter import *
 from datetime import date
-
+"""
+ADVANCED TECHNIQUE: importing the "date" class from
+Python's built-in datetime module. It is used only in get_today(), to find
+today's date so that we can flag overdue assignments.
+"""
 COURSES = ["CISC106", "MEEG102", "MEEG112", "MEEG241", "PHYS227",
            "MATH232", "Other"]
 ALL_COURSES = "All"
