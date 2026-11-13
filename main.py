@@ -1,3 +1,8 @@
+"""Assignment tracker: a Drafter website for tracking due dates and workload.
+
+You enter each assignment with a course, due date, and estimated hours.
+The site then shows what is overdue and how many hours of work remain.
+"""
 from drafter import *
 from datetime import date
 
@@ -157,7 +162,6 @@ def make_table_row(assignment: Assignment, today: str) -> list:
             format_hours(assignment.hours_estimated),
             get_status(assignment, today), action]
 
-
 @route
 def index(state: State) -> Page:
     """Dashboard: hours left, overdue warning, and links to every page."""
@@ -295,6 +299,293 @@ def save_settings(state: State, new_name: str) -> Page:
         state.username = new_name.strip()
     return index(state)
 
+set_assertion_defaults(report_success=False)
+
+PAST = "2000-01-01"
+FUTURE = "2999-12-31"
+TABLE_HEADER = ["Title", "Course", "Due", "Hours", "Status", ""]
+
+
+def make_assignment(title: str = "HW", course: str = "CISC108",
+                    due: str = FUTURE, hours: float = 2.0,
+                    done: bool = False) -> Assignment:
+    """Build an Assignment with sensible defaults for the tests."""
+    return Assignment(title, course, due, hours, False, done)
+
+
+def make_state(assignments: list[Assignment] | None = None) -> State:
+    """Build a State with sensible defaults for the tests."""
+    if assignments is None:
+        assignments = []
+    return State(assignments, "Quinn", ALL_COURSES, 0)
+
+
+def make_mark_done_button(title: str) -> Button:
+    """Build the Mark done button that the list page should show."""
+    return Button("Mark done", mark_done, [Argument("title", title)])
+
+
+def make_expected_list_page(state: State, rows: list[list]) -> Page:
+    """Build the list page that should be shown for the given table rows."""
+    content = [
+        Header("All assignments", 1),
+        "Show course:",
+        SelectBox("course", [ALL_COURSES] + COURSES, state.current_filter),
+        Button("Apply filter", set_filter),
+    ]
+    if len(rows) == 0:
+        content.append("No assignments to show.")
+    else:
+        content.append(Table(rows, header=TABLE_HEADER))
+    content.append(Button("Home", index))
+    return Page(state, content)
+
+
+def make_expected_error_page(state: State, message: str) -> Page:
+    """Build the page that should be shown when the add form is wrong."""
+    return Page(state, [
+        Header("Could not add that assignment", 1),
+        message,
+        Button("Try again", add_page),
+        Button("Home", index),
+    ])
+
+
+# Helper functions
+assert_equal(is_valid_date(get_today()), True)
+
+assert_equal(is_valid_date("2026-11-20"), True)
+assert_equal(is_valid_date("11-20-2026"), False)
+assert_equal(is_valid_date("2026-13-01"), False)
+assert_equal(is_valid_date("2026-11-32"), False)
+assert_equal(is_valid_date("2026-1x-20"), False)
+assert_equal(is_valid_date(""), False)
+
+assert_equal(is_valid_hours("3"), True)
+assert_equal(is_valid_hours("2.5"), True)
+assert_equal(is_valid_hours(" 4 "), True)
+assert_equal(is_valid_hours("0"), False)
+assert_equal(is_valid_hours("-2"), False)
+assert_equal(is_valid_hours("abc"), False)
+assert_equal(is_valid_hours("1.2.3"), False)
+assert_equal(is_valid_hours("."), False)
+assert_equal(is_valid_hours(""), False)
+
+assert_equal(format_hours(3.0), "3")
+assert_equal(format_hours(2.5), "2.5")
+assert_equal(format_hours(0.0), "0")
+
+assert_equal(find_assignment_index(
+    [make_assignment("A"), make_assignment("B")], "B"), 1)
+assert_equal(find_assignment_index([make_assignment("A")], "Z"), -1)
+assert_equal(find_assignment_index([], "A"), -1)
+
+assert_equal(check_new_assignment([], "HW 2", FUTURE, "2"), "")
+assert_equal(check_new_assignment([], "  ", FUTURE, "2"),
+             "Please enter a title.")
+assert_equal(check_new_assignment([make_assignment("HW 1")], "HW 1",
+                                  FUTURE, "2"),
+             "You already have an assignment with that title.")
+assert_equal(check_new_assignment([], "HW 2", "soon", "2"),
+             "The due date must look like 2026-11-20.")
+assert_equal(check_new_assignment([], "HW 2", FUTURE, "zero"),
+             "Hours must be a number greater than 0.")
+
+assert_equal(is_overdue(make_assignment(due=PAST), "2026-11-12"), True)
+assert_equal(is_overdue(make_assignment(due=FUTURE), "2026-11-12"), False)
+assert_equal(is_overdue(make_assignment(due=PAST, done=True), "2026-11-12"),
+             False)
+assert_equal(is_overdue(make_assignment(due="2026-11-12"), "2026-11-12"),
+             False)
+
+assert_equal(count_overdue([make_assignment("A", due=PAST),
+                            make_assignment("B", due=PAST, done=True),
+                            make_assignment("C", due=FUTURE)],
+                           "2026-11-12"), 1)
+assert_equal(count_overdue([], "2026-11-12"), 0)
+assert_equal(count_done([make_assignment("A", done=True),
+                         make_assignment("B")]), 1)
+assert_equal(count_done([]), 0)
+
+assert_equal(total_hours_remaining([make_assignment("A", hours=2.5),
+                                    make_assignment("B", hours=4.0),
+                                    make_assignment("C", hours=10.0,
+                                                    done=True)]), 6.5)
+assert_equal(total_hours_remaining([]), 0.0)
+
+assert_equal(matches_filter(make_assignment(course="MATH232"), ALL_COURSES),
+             True)
+assert_equal(matches_filter(make_assignment(course="MATH232"), "MATH232"),
+             True)
+assert_equal(matches_filter(make_assignment(course="MATH232"), "CISC108"),
+             False)
+
+late_item = make_assignment("late", due="2026-12-01")
+early_item = make_assignment("early", due="2026-11-01")
+unsorted_items = [late_item, early_item]
+assert_equal(sort_by_due_date(unsorted_items), [early_item, late_item])
+assert_equal(unsorted_items, [late_item, early_item])
+
+assert_equal(get_status(make_assignment(done=True), "2026-11-12"), "Done")
+assert_equal(get_status(make_assignment(due=PAST), "2026-11-12"), "OVERDUE")
+assert_equal(get_status(make_assignment(due=FUTURE), "2026-11-12"), "To do")
+
+# index
+assert_equal(index(make_state()), Page(make_state(), [
+    Header("Assignment tracker for Quinn", 1),
+    "Hours of work left: 0",
+    "Nothing is overdue.",
+    "Assignments finished: 0",
+    Button("Add assignment", add_page),
+    Button("View all assignments", list_page),
+    Button("Summary", summary_page),
+    Button("Settings", settings_page),
+]))
+overdue_state = make_state([make_assignment("A", due=PAST, hours=3.0)])
+assert_equal(index(overdue_state), Page(overdue_state, [
+    Header("Assignment tracker for Quinn", 1),
+    "Hours of work left: 3",
+    "Warning: 1 assignment(s) are overdue!",
+    "Assignments finished: 0",
+    Button("Add assignment", add_page),
+    Button("View all assignments", list_page),
+    Button("Summary", summary_page),
+    Button("Settings", settings_page),
+]))
+
+# add_page
+assert_equal(add_page(make_state()), Page(make_state(), [
+    Header("Add an assignment", 1),
+    "Title",
+    TextBox("title", ""),
+    "Course",
+    SelectBox("course", COURSES),
+    "Due date (YYYY-MM-DD)",
+    TextBox("due_date", get_today()),
+    "Hours estimated",
+    TextBox("hours", "1"),
+    CheckBox("high_priority", False),
+    "High priority",
+    Button("Submit", add_assignment),
+    Button("Home", index),
+]))
+
+# add_assignment
+added_state = make_state([Assignment("Essay", "MEEG102", FUTURE, 2.5, True,
+                                     False)])
+assert_equal(
+    add_assignment(make_state(), "  Essay ", "MEEG102", FUTURE, "2.5", True),
+    make_expected_list_page(added_state, [
+        ["Essay (high priority)", "MEEG102", FUTURE, "2.5", "To do",
+         make_mark_done_button("Essay")]]))
+assert_equal(
+    add_assignment(make_state(), "", "MEEG102", FUTURE, "2", False),
+    make_expected_error_page(make_state(), "Please enter a title."))
+assert_equal(
+    add_assignment(make_state([make_assignment("HW 1")]), "HW 1", "CISC108",
+                   FUTURE, "1", False),
+    make_expected_error_page(
+        make_state([make_assignment("HW 1")]),
+        "You already have an assignment with that title."))
+assert_equal(
+    add_assignment(make_state(), "HW", "CISC108", "soon", "1", False),
+    make_expected_error_page(make_state(),
+                             "The due date must look like 2026-11-20."))
+assert_equal(
+    add_assignment(make_state(), "HW", "CISC108", FUTURE, "zero", False),
+    make_expected_error_page(make_state(),
+                             "Hours must be a number greater than 0."))
+
+# list_page
+assert_equal(list_page(make_state()),
+             make_expected_list_page(make_state(), []))
+assert_equal(
+    list_page(make_state([make_assignment("Lab report")])),
+    make_expected_list_page(make_state([make_assignment("Lab report")]), [
+        ["Lab report", "CISC108", FUTURE, "2", "To do",
+         make_mark_done_button("Lab report")]]))
+filter_state = make_state([make_assignment("Math HW", course="MATH232"),
+                           make_assignment("Code HW", course="CISC108")])
+filter_state.current_filter = "MATH232"
+assert_equal(list_page(filter_state), make_expected_list_page(filter_state, [
+    ["Math HW", "MATH232", FUTURE, "2", "To do",
+     make_mark_done_button("Math HW")]]))
+sorted_state = make_state([make_assignment("Later", due="2999-12-31"),
+                           make_assignment("Sooner", due="2998-01-01",
+                                           done=True),
+                           make_assignment("Overdue", due=PAST)])
+assert_equal(list_page(sorted_state), make_expected_list_page(sorted_state, [
+    ["Overdue", "CISC108", PAST, "2", "OVERDUE",
+     make_mark_done_button("Overdue")],
+    ["Sooner", "CISC108", "2998-01-01", "2", "Done", ""],
+    ["Later", "CISC108", FUTURE, "2", "To do",
+     make_mark_done_button("Later")]]))
+
+# set_filter
+assert_equal(set_filter(make_state(), "PHYS227"), make_expected_list_page(
+    State([], "Quinn", "PHYS227", 0), []))
+
+# mark_done
+done_state = State([make_assignment("HW", done=True)], "Quinn", ALL_COURSES,
+                   1)
+done_page = make_expected_list_page(done_state, [
+    ["HW", "CISC108", FUTURE, "2", "Done", ""]])
+assert_equal(mark_done(make_state([make_assignment("HW")]), "HW"), done_page)
+assert_equal(
+    mark_done(State([make_assignment("HW", done=True)], "Quinn", ALL_COURSES,
+                    1), "HW"),
+    done_page)
+unchanged_state = make_state([make_assignment("HW")])
+assert_equal(mark_done(make_state([make_assignment("HW")]), "Nope"),
+             make_expected_list_page(unchanged_state, [
+                 ["HW", "CISC108", FUTURE, "2", "To do",
+                  make_mark_done_button("HW")]]))
+
+# summary_page
+summary_state = State([make_assignment("A", hours=2.0),
+                       make_assignment("B", hours=1.0, done=True)],
+                      "Quinn", ALL_COURSES, 1)
+assert_equal(summary_page(summary_state), Page(summary_state, [
+    Header("Summary", 1),
+    "Hours of work left: 2",
+    "Assignments still to do: 1",
+    "Overdue: 0",
+    "Finished: 1 of 2",
+    ProgressBar(1, 2),
+    Button("Home", index),
+]))
+assert_equal(summary_page(make_state()), Page(make_state(), [
+    Header("Summary", 1),
+    "Hours of work left: 0",
+    "Assignments still to do: 0",
+    "Overdue: 0",
+    "Finished: 0 of 0",
+    Button("Home", index),
+]))
+
+# settings_page
+assert_equal(settings_page(make_state()), Page(make_state(), [
+    Header("Settings", 1),
+    "Your name",
+    TextBox("new_name", "Quinn"),
+    Button("Save", save_settings),
+    Button("Home", index),
+]))
+
+# save_settings
+assert_equal(save_settings(make_state(), "  Alex "), Page(
+    State([], "Alex", ALL_COURSES, 0), [
+        Header("Assignment tracker for Alex", 1),
+        "Hours of work left: 0",
+        "Nothing is overdue.",
+        "Assignments finished: 0",
+        Button("Add assignment", add_page),
+        Button("View all assignments", list_page),
+        Button("Summary", summary_page),
+        Button("Settings", settings_page),
+    ]))
+assert_equal(save_settings(make_state(), "   ").state.username, "Quinn")
+
 
 set_website_title("Assignment Tracker")
 set_site_information(
@@ -305,5 +596,3 @@ set_site_information(
     links=["https://github.com/YOUR-USERNAME/YOUR-REPOSITORY"],
 )
 start_server(State([], DEFAULT_USERNAME, ALL_COURSES, 0))
-
-
